@@ -142,10 +142,10 @@ def make_full_graph(g):
     return full_g
     
     
-def laplacian_positional_encoding(g, pos_enc_dim):
+#def laplacian_positional_encoding(g, pos_enc_dim):
     """
         Graph positional encoding v/ Laplacian eigenvectors
-    """
+    
 
     # Laplacian
     A = g.adjacency_matrix_scipy(return_edge_ids=False).astype(float)
@@ -158,6 +158,102 @@ def laplacian_positional_encoding(g, pos_enc_dim):
     EigVec = EigVec[:, EigVal.argsort()] # increasing order
     g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
 
+    return g
+"""
+def laplacian_positional_encoding(g, pos_enc_dim, alpha=0.5, use_adjacency=True):
+    """
+        Graph positional encoding v/ Laplacian eigenvectors
+    """
+
+    # Laplacian
+    #A = g.adjacency_matrix_scipy(return_edge_ids=False).astype(float)
+    #N = sp.diags(dgl.backend.asnumpy(g.in_degrees()).clip(1) ** -0.5, dtype=float)
+    #L = sp.eye(g.number_of_nodes()) - N * A * N
+
+    # Eigenvectors with scipy
+    #EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR')
+    #EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR', tol=1e-2) # for 40 PEs
+    #EigVec = EigVec[:, EigVal.argsort()] # increasing order
+    #g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
+
+    #return g
+    
+    n_nodes = g.number_of_nodes()
+    
+    # گام 1: ساخت ماتریس مناسب (Adjacency یا Laplacian)
+    if use_adjacency:
+        # استفاده از Adjacency matrix (مثل مقاله)
+        A = g.adjacency_matrix_scipy(return_edge_ids=False).astype(float).todense()
+        A = np.array(A)
+    else:
+        # استفاده از Normalized Laplacian
+        A = g.adjacency_matrix_scipy(return_edge_ids=False).astype(float)
+        N = sp.diags(dgl.backend.asnumpy(g.in_degrees()).clip(1) ** -0.5, dtype=float)
+        L = sp.eye(g.number_of_nodes()) - N * A * N
+        A = L.todense()
+        A = np.array(A)
+    
+    # گام 2: Eigendecomposition
+    # F = V^(-1) where A = V J V^(-1)
+    try:
+        # محاسبه eigenvalues و eigenvectors
+        eigenvalues, eigenvectors = eig(A)
+        
+        # مرتب‌سازی بر اساس اندازه eigenvalues (نزولی)
+        idx = np.argsort(np.abs(eigenvalues))[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
+        
+        # F = V^(-1) (GFT matrix)
+        F = np.linalg.inv(eigenvectors)
+        
+    except np.linalg.LinAlgError:
+        # اگر matrix singular بود، از pseudoinverse استفاده کن
+        print("Warning: Using pseudoinverse for singular matrix")
+        F = np.linalg.pinv(eigenvectors)
+    
+    # گام 3: Eigendecomposition از F
+    # F = χ Λ χ^T (for orthogonal case) یا F = P J P^(-1) (general case)
+    try:
+        F_eigenvalues, F_eigenvectors = eig(F)
+        
+        # مرتب‌سازی
+        idx = np.argsort(np.abs(F_eigenvalues))[::-1]
+        F_eigenvalues = F_eigenvalues[idx]
+        F_eigenvectors = F_eigenvectors[:, idx]
+        
+    except np.linalg.LinAlgError:
+        print("Warning: Eigendecomposition failed, using identity")
+        g.ndata['gfrft_pos_enc'] = torch.zeros(n_nodes, pos_enc_dim)
+        return g
+    
+    # گام 4: محاسبه F^a (معادله 12 از مقاله)
+    # F^a[m,n] = Σ χ_k[m] * λ_k^a * χ_k[n]
+    
+    # λ^a برای eigenvalues مختلط
+    lambda_a = np.power(F_eigenvalues, alpha)
+    
+    # F^a = χ * diag(λ^a) * χ^T
+    F_a = F_eigenvectors @ np.diag(lambda_a) @ F_eigenvectors.T
+    
+    # گام 5: استخراج PE از F^a
+    # استفاده از ستون‌های اول F^a به عنوان PE
+    if F_a.shape[1] >= pos_enc_dim:
+        pe = F_a[:, :pos_enc_dim]
+    else:
+        # اگر ابعاد کمتر بود، pad کن
+        pe = np.zeros((n_nodes, pos_enc_dim))
+        pe[:, :F_a.shape[1]] = F_a
+    
+    # تبدیل به real (گرفتن قسمت real از اعداد مختلط)
+    pe = np.real(pe)
+    
+    # Normalization (optional)
+    # pe = (pe - pe.mean(axis=0)) / (pe.std(axis=0) + 1e-8)
+    
+    # ذخیره در graph
+    g.ndata['gfrft_pos_enc'] = torch.from_numpy(pe).float()
+    
     return g
 
 
