@@ -255,7 +255,8 @@ def laplacian_positional_encoding(g, pos_enc_dim, alpha=0.5, use_adjacency=True)
     # pe = (pe - pe.mean(axis=0)) / (pe.std(axis=0) + 1e-8)
     
     # ذخیره در graph
-    g.ndata['gfrft_pos_enc'] = torch.from_numpy(pe).float()
+    #g.ndata['gfrft_pos_enc'] = torch.from_numpy(pe).float()
+    g.ndata['lap_pos_enc'] = torch.from_numpy(pe).float()
     
     return g
 
