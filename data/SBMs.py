@@ -13,6 +13,9 @@ import networkx as nx
 
 import hashlib
 
+from numpy.linalg import eig
+
+
 class load_SBMsDataSetDGL(torch.utils.data.Dataset):
 
     def __init__(self,
